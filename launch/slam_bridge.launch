@@ -1,0 +1,9 @@
+<launch>
+  <param name="/use_sim_time" value="false" />
+
+  <!-- Run the Rerun bridge node -->
+  <node name="rerun_bridge_node" pkg="rerun_bridge" type="visualizer" output="screen">
+    <rosparam param="yaml_path" subst_value="True">$(find rerun_bridge)/launch/slam_bridge_params.yaml</rosparam>
+  </node>
+</launch>
+
