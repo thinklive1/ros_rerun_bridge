@@ -22,7 +22,18 @@ void log_point_cloud(
     const rerun::RecordingStream& rec, const std::string& entity_path,
     const sensor_msgs::PointCloud2::ConstPtr& msg
 ) {
+    ROS_INFO("[log_point_cloud] START - entity_path=%s, frame_id=%s", 
+             entity_path.c_str(), msg->header.frame_id.c_str());
+    
     rec.set_time_seconds("timestamp", msg->header.stamp.toSec());
+    ROS_DEBUG("[log_point_cloud] Set timestamp: %.3f", msg->header.stamp.toSec());
+
+    // Log available fields
+    std::stringstream fields_ss;
+    for (const auto& f : msg->fields) {
+        fields_ss << f.name << "(" << (int)f.datatype << ") ";
+    }
+    ROS_INFO("[log_point_cloud] Fields: %s", fields_ss.str().c_str());
 
     // Ensure point cloud has x,y,z
     bool has_xyz = false;
@@ -33,11 +44,14 @@ void log_point_cloud(
         }
     }
     if (!has_xyz) {
-        ROS_WARN("PointCloud2 message on %s has no 'x' field, skipping", entity_path.c_str());
+        ROS_WARN("[log_point_cloud] No 'x' field found, skipping");
         return;
     }
 
     const size_t num_points = static_cast<size_t>(msg->width) * static_cast<size_t>(msg->height);
+    ROS_INFO("[log_point_cloud] Expected points: %zu (width=%d, height=%d, point_step=%d)", 
+             num_points, msg->width, msg->height, msg->point_step);
+    
     std::vector<rerun::Position3D> points;
     points.reserve(num_points);
 
@@ -62,6 +76,9 @@ void log_point_cloud(
         colors.reserve(num_points);
     }
 
+    size_t valid_count = 0;
+    size_t nan_count = 0;
+    
     for (size_t i = 0; i < num_points; ++i, ++it_x, ++it_y, ++it_z) {
         float x = *it_x;
         float y = *it_y;
@@ -69,10 +86,12 @@ void log_point_cloud(
 
         // skip NaNs / infs
         if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+            nan_count++;
             continue;
         }
 
         points.emplace_back(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+        valid_count++;
 
         if (has_rgb) {
             // naive attempt: read rgb as float-packed or as 3x uint8. Fallback to white.
@@ -101,15 +120,31 @@ void log_point_cloud(
         }
     }
 
+    ROS_INFO("[log_point_cloud] Extracted: valid=%zu, nan=%zu, total_processed=%zu", 
+             valid_count, nan_count, num_points);
+    
     if (points.empty()) {
+        ROS_WARN("[log_point_cloud] No valid points extracted, skipping rec.log()");
         return;
     }
 
-    if (has_rgb && colors.size() == points.size()) {
-        rec.log(entity_path, rerun::Points3D(points).with_colors(colors));
-    } else {
-        rec.log(entity_path, rerun::Points3D(points));
+    ROS_INFO("[log_point_cloud] Calling rec.log() with %zu points to entity_path=%s", 
+             points.size(), entity_path.c_str());
+    
+    try {
+        if (has_rgb && colors.size() == points.size()) {
+            ROS_INFO("[log_point_cloud] Logging with RGB colors");
+            rec.log(entity_path, rerun::Points3D(points).with_colors(colors));
+        } else {
+            ROS_INFO("[log_point_cloud] Logging without colors");
+            rec.log(entity_path, rerun::Points3D(points));
+        }
+        ROS_INFO("[log_point_cloud] rec.log() completed successfully");
+    } catch (const std::exception& e) {
+        ROS_ERROR("[log_point_cloud] Exception during rec.log(): %s", e.what());
     }
+    
+    ROS_INFO("[log_point_cloud] END");
 }
 
 void log_image(

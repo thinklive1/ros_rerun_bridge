@@ -1,16 +1,48 @@
+# ============================================================================
+# Rerun Bridge Configuration for FAST-LIVO2
+# ============================================================================
+
+# Connection settings
+# -------------------
+# Use gRPC connection for web viewer (supports rerun+http://)
+rerun_addr: rerun+http://172.17.0.1:9876/proxy
+
+# Topic subscriptions
+# -------------------
+# topic_to_datatype: Map ROS topics to their message types
+# Bridge will ONLY subscribe to topics listed here
+topic_to_datatype:
+  /cloud_registered: sensor_msgs/PointCloud2
+  /Laser_map: sensor_msgs/PointCloud2
+  /laser_map: sensor_msgs/PointCloud2
+  # Add more topics as needed:
+  # /camera/image_raw: sensor_msgs/Image
+  # /imu/data: sensor_msgs/Imu
+
+# Entity path mapping
+# -------------------
+# topic_to_entity_path: Map topics to Rerun visualization paths
+# This controls where data appears in the Rerun viewer hierarchy
 topic_to_entity_path:
-  /spot/camera/left/image: /odom/body/head/left/left_fisheye
-  /spot/camera/left/camera_info: /odom/body/head/left/left_fisheye 
-  /spot/camera/right/image: /odom/body/head/right/right_fisheye
-  /spot/camera/right/camera_info: /odom/body/head/right/right_fisheye 
-  /spot/camera/frontleft/image: /odom/body/head/frontleft/frontleft_fisheye
-  /spot/camera/frontleft/camera_info: /odom/body/head/frontleft/frontleft_fisheye 
-  /spot/camera/frontright/image: /odom/body/head/frontright/frontright_fisheye
-  /spot/camera/frontright/camera_info: /odom/body/head/frontright/frontright_fisheye 
-  /spot/camera/back/image: /odom/body/head/back/back_fisheye
-  /spot/camera/back/camera_info: /odom/body/head/back/back_fisheye 
+  /cloud_registered: /world/fast_livo2/cloud_registered
+  /Laser_map: /world/fast_livo2/laser_map
+  /laser_map: /world/fast_livo2/laser_map
 
+# Transform tree (TF)
+# -------------------
+# Define the coordinate frame hierarchy for your SLAM system
+# FAST-LIVO2 uses: camera_init (world) -> body -> aft_mapped
+tf:
+  update_rate: 10.0  # Hz - how often to publish TF transforms
+  tree:
+    camera_init:           # Root frame (world frame)
+      body:                # IMU/robot body frame
+        aft_mapped: {}     # LiDAR frame after mapping
+
+# Extra transforms (optional)
+# -------------------
 extra_transform3ds: []
-extra_pinholes: []
 
-rerun_addr: http://localhost:9876
+# Extra camera models (optional)
+# -------------------
+extra_pinholes: []

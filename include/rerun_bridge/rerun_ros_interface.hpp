@@ -9,6 +9,7 @@
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/Imu.h>
+#include <sensor_msgs/PointCloud2.h>
 #include <tf2_msgs/TFMessage.h>
 
 #include <rerun.hpp>

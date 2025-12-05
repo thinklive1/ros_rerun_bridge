@@ -1,9 +1,17 @@
 <launch>
   <param name="/use_sim_time" value="false" />
 
-  <!-- Run the Rerun bridge node -->
-  <node name="rerun_bridge_node" pkg="rerun_bridge" type="visualizer" output="screen">
-    <rosparam param="yaml_path" subst_value="True">$(find rerun_bridge)/launch/slam_bridge_params.yaml</rosparam>
+  <!-- Load bridge configuration into ROS parameter server -->
+  <rosparam command="load" file="$(find rerun_bridge)/launch/slam_bridge_params.yaml" />
+
+  <!-- Run the Python Rerun bridge node (supports gRPC) -->
+  <node name="rerun_bridge_node" pkg="rerun_bridge" type="pointcloud_bridge_node.py" output="screen">
+    <!-- Rerun connection address (supports gRPC/HTTP) -->
+    <param name="rerun_addr" value="rerun+http://172.17.0.1:9876/proxy"/>
+    <!-- Point cloud topic to forward -->
+    <param name="cloud_topic" value="/cloud_registered"/>
+    <!-- Entity path in Rerun viewer -->
+    <param name="entity_path" value="/world/pointcloud"/>
   </node>
 </launch>
 

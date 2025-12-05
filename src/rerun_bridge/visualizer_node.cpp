@@ -45,15 +45,27 @@ RerunLoggerNode::RerunLoggerNode() {
     // Prefer connecting to an externally provided Rerun server (e.g. on the host).
     std::string rerun_addr;
     // Priority: ROS param 'rerun_addr', then env RERUN_ADDR. If neither set, spawn a local viewer.
-    if (_nh.getParam("rerun_addr", rerun_addr)) {
-        ROS_INFO("Connecting to Rerun at %s (from ROS param)", rerun_addr.c_str());
-        _rec.connect(rerun_addr).exit_on_failure();
+    // Use global node handle to read global parameter
+    ros::NodeHandle global_nh;
+    if (global_nh.getParam("/rerun_addr", rerun_addr)) {
+        ROS_INFO("[Rerun Bridge] Connecting to Rerun at %s (from ROS param)", rerun_addr.c_str());
+        
+        // Detect connection type based on URL scheme
+        if (rerun_addr.find("rerun+http://") == 0 || 
+            rerun_addr.find("rerun+https://") == 0 ||
+            rerun_addr.find("rerun://") == 0) {
+            ROS_INFO("[Rerun Bridge] Using gRPC connection");
+            _rec.connect(rerun_addr).exit_on_failure();
+        } else {
+            ROS_INFO("[Rerun Bridge] Using TCP connection");
+            _rec.connect(rerun_addr).exit_on_failure();
+        }
     } else if (const char* e = std::getenv("RERUN_ADDR")) {
         rerun_addr = std::string(e);
-        ROS_INFO("Connecting to Rerun at %s (from RERUN_ADDR)", rerun_addr.c_str());
+        ROS_INFO("[Rerun Bridge] Connecting to Rerun at %s (from RERUN_ADDR)", rerun_addr.c_str());
         _rec.connect(rerun_addr).exit_on_failure();
     } else {
-        ROS_INFO("No RERUN_ADDR/ros param 'rerun_addr' provided, spawning local Rerun viewer");
+        ROS_INFO("[Rerun Bridge] No RERUN_ADDR/ros param 'rerun_addr' provided, spawning local Rerun viewer");
         _rec.spawn().exit_on_failure();
     }
 
@@ -198,49 +210,42 @@ void RerunLoggerNode::_add_tf_tree(
 }
 
 void RerunLoggerNode::_create_subscribers() {
-    // We only subscribe to topics that are published by nodes matching a configured prefix
-    std::string publisher_prefix;
-    _nh.param<std::string>("publisher_node_prefix",publisher_prefix, std::string("fastlivo"));
-
-    // Build mapping topic -> list of publishers
-    XmlRpc::XmlRpcValue system_state;
-    std::map<std::string, std::vector<std::string>> topic_to_publishers;
-    if (ros::master::getSystemState(system_state)) {
-        // system_state is [publishers, subscribers, services]
-        if (system_state.getType() == XmlRpc::XmlRpcValue::TypeArray && system_state.size() >= 1) {
-            XmlRpc::XmlRpcValue pubs = system_state[0];
-            for (int i = 0; i < pubs.size(); ++i) {
-                std::string topic = static_cast<std::string>(pubs[i][0]);
-                XmlRpc::XmlRpcValue node_list = pubs[i][1];
-                std::vector<std::string> nodes;
-                for (int j = 0; j < node_list.size(); ++j) {
-                    nodes.push_back(static_cast<std::string>(node_list[j]));
-                }
-                topic_to_publishers[topic] = nodes;
-            }
-        }
+    // Build allowed topics from YAML config (topic_to_datatype mapping)
+    std::map<std::string, std::string> allowed_topics;
+    ros::param::get("/topic_to_datatype", allowed_topics);
+    
+    if (!allowed_topics.empty()) {
+        ROS_INFO_ONCE("[Bridge] Using topic whitelist from config (%zu topics)", allowed_topics.size());
     }
 
+    // Get currently available topics from master
     ros::master::V_TopicInfo topic_infos;
     ros::master::getTopics(topic_infos);
+    
+    ROS_INFO_THROTTLE(10.0, "[Bridge] Scanning %zu topics from ROS master...", topic_infos.size());
+    
     for (const auto& topic_info : topic_infos) {
         // already subscribed to this topic?
         if (_topic_to_subscriber.find(topic_info.name) != _topic_to_subscriber.end()) {
             continue;
         }
 
-        // If the topic has publishers, check if any publisher node contains the prefix
-        bool allowed = false;
-        if (topic_to_publishers.find(topic_info.name) != topic_to_publishers.end()) {
-            for (const auto& node : topic_to_publishers[topic_info.name]) {
-                if (node.find(publisher_prefix) != std::string::npos) {
-                    allowed = true;
-                    break;
-                }
+        // If user provided allowed_topics mapping, only subscribe to those topics.
+        // If mapping is empty, fall back to subscribing to any publisher from the
+        // discovered topics (preserving existing behavior for backward compatibility).
+        if (!allowed_topics.empty()) {
+            if (allowed_topics.find(topic_info.name) == allowed_topics.end()) {
+                ROS_DEBUG("Topic %s not in allowed list, skipping", topic_info.name.c_str());
+                continue; // not in user-provided map
             }
+            const std::string& expected_type = allowed_topics[topic_info.name];
+            if (!expected_type.empty() && expected_type != topic_info.datatype) {
+                ROS_WARN_THROTTLE(5.0, "Topic %s type mismatch: expected %s but master reports %s; skipping",
+                                  topic_info.name.c_str(), expected_type.c_str(), topic_info.datatype.c_str());
+                continue;
+            }
+            ROS_INFO("[Bridge] Found allowed topic: %s (%s)", topic_info.name.c_str(), topic_info.datatype.c_str());
         }
-        // If there were no publishers info available, skip (be conservative)
-        if (!allowed) continue;
 
         if (topic_info.datatype == "sensor_msgs/Image") {
             _topic_to_subscriber[topic_info.name] = _create_image_subscriber(topic_info.name);
@@ -259,6 +264,8 @@ void RerunLoggerNode::_create_subscribers() {
             _topic_to_subscriber[topic_info.name] = _create_pointcloud_subscriber(topic_info.name);
         }
     }
+    
+    ROS_INFO_THROTTLE(10.0, "[Bridge] Currently subscribed to %zu topics", _topic_to_subscriber.size());
 }
 
 void RerunLoggerNode::_update_tf() const {

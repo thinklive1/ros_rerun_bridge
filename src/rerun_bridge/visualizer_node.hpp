@@ -29,8 +29,8 @@ class RerunLoggerNode {
     const rerun::RecordingStream _rec{"rerun_logger_node"};
     ros::NodeHandle _nh{"~"};
     std::string _root_frame;
-    float _tf_fixed_rate;
-    tf2_ros::Buffer _tf_buffer;
+    float _tf_fixed_rate = 0.0;  // Initialize to 0 (disabled by default)
+    tf2_ros::Buffer _tf_buffer{ros::Duration(10.0)};  // 10 second cache, avoid Duration overflow
     tf2_ros::TransformListener _tf_listener{_tf_buffer};
 
     void _create_subscribers();
